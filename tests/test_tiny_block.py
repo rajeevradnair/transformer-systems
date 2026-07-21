@@ -98,40 +98,52 @@ def test_embedding_rejects_token_id_equal_to_vocab_size() -> None:
 
 @pytest.mark.skipif(
     not torch.cuda.is_available(),
-    reason="Device-split reproduction requires CUDA",
+    reason="CUDA GPU required for device-split reproduction",
 )
-def test_attention_reproduces_cpu_gpu_device_split() -> None:
-    hidden_width = 8
+def test_attention_rejects_cpu_weight_and_cuda_input_split() -> None:
+    attention = AttentionPlaceholder(hidden_width=8)
 
-    embedding = TokenEmbedding(
-        vocab_size=20,
-        hidden_width=hidden_width,
-    ).cpu()
-
-    attention = AttentionPlaceholder(
-        hidden_width=hidden_width,
-    ).cpu()
-
-    token_ids = torch.tensor(
-        [[1, 4, 7, 3]],
-        dtype=torch.long,
-        device="cpu",
+    hidden_states = torch.zeros(
+        1,
+        4,
+        8,
+        dtype=torch.float32,
+        device="cuda",
     )
 
-    hidden_states = embedding(token_ids)
-    hidden_states = hidden_states.to("cuda")
+    with pytest.raises(
+        ValueError,
+        match="attention device mismatch",
+    ) as error:
+        attention(hidden_states)
 
-    assert hidden_states.shape == (1, 4, hidden_width)
-    assert hidden_states.device.type == "cuda"
-    assert attention.layer.weight.device.type == "cpu"
+    diagnostic = str(error.value)
 
-    with pytest.raises(RuntimeError) as error:
-       attention(hidden_states)
+    assert "hidden_states=cuda:0" in diagnostic
+    assert "projection_weight=cpu" in diagnostic
 
-    diagnostic = str(error.value).lower()
+        
 
-    '''
-    assert "device" in diagnostic
-    assert "cpu" in diagnostic
-    assert "cuda" in diagnostic
-    '''
+@pytest.mark.skipif(
+    not torch.cuda.is_available(),
+    reason="CUDA GPU required for device-split reproduction",
+)
+def test_attention_rejects_cpu_weight_and_cuda_input_split() -> None:
+    attention = AttentionPlaceholder(hidden_width=8)
+
+    hidden_states = torch.zeros(
+        1,
+        4,
+        8,
+        dtype=torch.float32,
+        device="cuda",
+    )
+
+    with pytest.raises(ValueError) as error:
+        attention(hidden_states)
+
+    diagnostic = str(error.value)
+
+    assert "attention device mismatch" in diagnostic
+    assert "hidden_states=cuda:0" in diagnostic
+    assert "projection_weight=cpu" in diagnostic

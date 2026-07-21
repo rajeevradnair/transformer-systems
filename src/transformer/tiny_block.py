@@ -118,6 +118,16 @@ class AttentionPlaceholder(nn.Module):
                 f"but received {observed_width}"
             )
 
+
+        parameter_device = self.layer.weight.device
+
+        if hidden_states.device != parameter_device:
+            raise ValueError(
+                "attention device mismatch: "
+                f"hidden_states={hidden_states.device}, "
+                f"projection_weight={parameter_device}"
+            )
+
         attention_output = self.layer(hidden_states)
 
         if attention_output.shape != hidden_states.shape:

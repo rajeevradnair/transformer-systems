@@ -1,0 +1,18 @@
+[project]
+name = "transformer-systems"
+version = "0.1.0"
+description = "Hands-on transformer and inference runtime systems study"
+requires-python = ">=3.12"
+dependencies = [
+    "torch",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"

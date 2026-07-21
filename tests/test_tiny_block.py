@@ -2,7 +2,7 @@ import pytest
 
 import torch
 
-from src.transformer.tiny_block import TinyLanguageModel, add_residual
+from src.transformer.tiny_block import TinyLanguageModel, add_residual, TokenEmbedding
 
 
 def test_tiny_language_model_produces_expected_shapes() -> None:
@@ -53,6 +53,7 @@ def test_tiny_language_model_produces_expected_shapes() -> None:
     assert int(predicted_token_ids.min()) >= 0
     assert int(predicted_token_ids.max()) < vocab_size
 
+
 def test_residual_rejects_hidden_width_mismatch() -> None:
     residual = torch.zeros(
         2,
@@ -70,3 +71,26 @@ def test_residual_rejects_hidden_width_mismatch() -> None:
 
     with pytest.raises(ValueError, match="residual shape mismatch"):
         add_residual(residual=residual, transformed=transformed, name="attention + residual")
+
+
+def test_embedding_rejects_token_id_equal_to_vocab_size() -> None:
+    vocab_size = 20
+
+    embedding = TokenEmbedding(
+        vocab_size=vocab_size,
+        hidden_width=8,
+    )
+
+    invalid_token_ids = torch.tensor(
+        [[1, 4, vocab_size, 3]],
+        dtype=torch.long,
+    )
+
+    with pytest.raises(ValueError) as error:
+        embedding(invalid_token_ids)
+
+    diagnostic = str(error.value)
+
+    assert "outside embedding vocabulary" in diagnostic
+    assert "expected every ID in [0, 19]" in diagnostic
+    assert "maximum=20" in diagnostic

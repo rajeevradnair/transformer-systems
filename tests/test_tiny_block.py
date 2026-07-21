@@ -147,3 +147,39 @@ def test_attention_rejects_cpu_weight_and_cuda_input_split() -> None:
     assert "attention device mismatch" in diagnostic
     assert "hidden_states=cuda:0" in diagnostic
     assert "projection_weight=cpu" in diagnostic
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available(),
+    reason="CUDA GPU required for GPU execution test",
+)
+def test_tiny_language_model_runs_entirely_on_cuda() -> None:
+    device = torch.device("cuda")
+
+    model = TinyLanguageModel(
+        vocab_size=20,
+        hidden_width=8,
+        expansion_factor=4,
+    ).to(device)
+
+    token_ids = torch.tensor(
+        [
+            [1, 4, 7, 3],
+            [2, 9, 5, 6],
+        ],
+        dtype=torch.long,
+        device=device,
+    )
+
+    logits = model(token_ids)
+
+    assert token_ids.device.type == "cuda"
+    assert logits.device.type == "cuda"
+    assert logits.shape == (2, 4, 20)
+
+    parameter_devices = {
+        parameter.device.type
+        for parameter in model.parameters()
+    }
+
+    assert parameter_devices == {"cuda"}

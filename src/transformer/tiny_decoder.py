@@ -68,16 +68,23 @@ class TinyDecoderLayer(nn.Module):
             batch_first=True,
         )
 
+        self.cross_attention:nn.MultiheadAttention = nn.MultiheadAttention(
+            embed_dim=hidden_size,
+            num_heads=num_heads,
+            batch_first=True,
+        )       
+
         self.mlp = TinyMLP(hidden_size, device=self.device)
 
     def forward(
         self,
         hidden_states: torch.Tensor,
+        encoder_memory: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if hidden_states.ndim != 3:
             raise ValueError(
                 "decoder hidden states must have shape "
-                "[batch, sequence, hidden]"
+                "[batch, target_sequence, hidden]"
             )
 
         if hidden_states.shape[-1] != self.hidden_size:
@@ -104,7 +111,7 @@ class TinyDecoderLayer(nn.Module):
             causal_mask,
         )
 
-        attention_output, _ = self.self_attention(
+        self_attention_output, _ = self.self_attention(
             query=hidden_states,
             key=hidden_states,
             value=hidden_states,
@@ -113,16 +120,21 @@ class TinyDecoderLayer(nn.Module):
         )
 
         trace_tensor(
-            "decoder.attention_output",
-            attention_output,
+            "decoder.self_attention_output",
+            self_attention_output,
         )
 
         hidden_states = add_residual(
             hidden_states,
-            attention_output,
-            name="Residual + Attention"
+            self_attention_output,
+            name="Residual + Self Attention"
         )
 
+        if encoder_memory is not None:
+            hidden_states = self._apply_cross_attention(
+                hidden_states=hidden_states,
+                encoder_memory=encoder_memory,
+            )
 
         mlp_output = self.mlp(hidden_states)
 
@@ -134,7 +146,7 @@ class TinyDecoderLayer(nn.Module):
         hidden_states = add_residual(
             hidden_states,
             mlp_output,
-            name="Residual + Attention",
+            name="Residual + MLP",
         )
 
         trace_tensor(
@@ -143,6 +155,62 @@ class TinyDecoderLayer(nn.Module):
         )
 
         return hidden_states
+
+    def _apply_cross_attention(
+        self,
+        hidden_states: torch.Tensor,
+        encoder_memory: torch.Tensor,
+    ) -> torch.Tensor:
+        if encoder_memory.ndim != 3:
+            raise ValueError(
+                "encoder memory must have shape "
+                "[batch, source_sequence, hidden]"
+            )
+
+        if encoder_memory.shape[0] != hidden_states.shape[0]:
+            raise ValueError(
+                "encoder and decoder batch sizes must match: "
+                f"encoder batch={encoder_memory.shape[0]}, "
+                f"decoder batch={hidden_states.shape[0]}"
+            )
+
+        if encoder_memory.shape[-1] != self.hidden_size:
+            raise ValueError(
+                "encoder memory width mismatch: "
+                f"expected {self.hidden_size}, "
+                f"received {encoder_memory.shape[-1]}"
+            )
+
+        if encoder_memory.device != hidden_states.device:
+            raise ValueError(
+                "encoder memory and decoder states must be "
+                "on the same device: "
+                f"encoder={encoder_memory.device}, "
+                f"decoder={hidden_states.device}"
+            )
+
+        trace_tensor(
+            "decoder.encoder_memory",
+            encoder_memory,
+        )
+
+        cross_attention_output, _ = self.cross_attention(
+            query=hidden_states,
+            key=encoder_memory,
+            value=encoder_memory,
+            need_weights=False,
+        )
+
+        trace_tensor(
+            "decoder.cross_attention_output",
+            cross_attention_output,
+        )
+
+        return add_residual(
+            hidden_states,
+            cross_attention_output,
+            name="Residual + Cross Attention"
+        )
 
 
 class TinyDecoder(nn.Module):
@@ -169,6 +237,7 @@ class TinyDecoder(nn.Module):
     def forward(
         self,
         token_ids: torch.Tensor,
+        encoder_memory: torch.Tensor | None = None,
     ) -> torch.Tensor:
         trace_tensor(
             "decoder.token_ids",
@@ -182,7 +251,10 @@ class TinyDecoder(nn.Module):
             hidden_states,
         )
 
-        return self.layer(hidden_states)
+        return self.layer(
+            hidden_states=hidden_states,
+            encoder_memory=encoder_memory,
+        )
 
 
 if __name__=="__main__":
